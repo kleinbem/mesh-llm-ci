@@ -141,7 +141,9 @@ jobs:
         env:
           PACKAGES: ${{ inputs.packages }}
           FEATURES: ${{ inputs.features }}
-          PLATFORM: ${{ matrix.platform }}
+          # Not PLATFORM: Windows env names are case-insensitive, and msvc-dev-cmd
+          # sets Platform=x64.
+          CHECK_PLATFORM: ${{ matrix.platform }}
         run: |
           set -euo pipefail
           git log -1 --format='%H %s'
@@ -153,7 +155,7 @@ jobs:
           case "$FEATURES" in
             auto)
               features=""
-              if [ "$PLATFORM" = windows ]; then
+              if [ "$CHECK_PLATFORM" = windows ]; then
                 for p in $PACKAGES; do
                   case "$p" in mesh-llm-system|mesh-llm-commands) features="mesh-llm-system/dynamic-native-runtime" ;; esac
                 done
