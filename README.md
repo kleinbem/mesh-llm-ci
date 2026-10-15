@@ -23,6 +23,7 @@ Inputs:
 | `upstream` | `Mesh-LLM/mesh-llm` | Repository whose `main` is the base |
 | `packages` | `auto` | `auto` = upstream planner; or packages to test on every platform |
 | `title` | (empty) | PR title to check like the squash commit subject |
+| `toolchain` | `1.98.1` | Rust toolchain; keep it at the version of upstream's runner image (the `cargo` version in its Clippy job log). A newer stable can fail Clippy on deprecations upstream doesn't see yet. |
 
 ## Jobs
 
