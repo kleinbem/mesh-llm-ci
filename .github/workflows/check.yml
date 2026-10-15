@@ -1,0 +1,137 @@
+name: Check
+
+# Runs Clippy and the tests of selected Mesh-LLM crates for one commit of a fork,
+# on GitHub's Linux, macOS and Windows runners. Started by hand or with
+# `gh workflow run check.yml -R kleinbem/mesh-llm-ci -f ref=<sha> -f packages="<crates>"`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: Repository to check out (owner/name)
+        default: kleinbem/mesh-llm
+        required: true
+      ref:
+        description: Commit SHA, branch or tag
+        required: true
+      packages:
+        description: Space-separated Cargo packages, e.g. "mesh-llm-system skippy-protocol"
+        default: mesh-llm-system
+        required: true
+      platforms:
+        description: Platforms to run on
+        type: choice
+        default: all
+        options: [all, windows, macos, linux, windows+macos]
+      tests:
+        description: Run the tests after Clippy
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ inputs.repo }}-${{ inputs.ref }}-${{ inputs.platforms }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - id: plan
+        name: Validate inputs and select platforms
+        shell: bash
+        env:
+          REPO: ${{ inputs.repo }}
+          REF: ${{ inputs.ref }}
+          PACKAGES: ${{ inputs.packages }}
+          PLATFORMS: ${{ inputs.platforms }}
+        run: |
+          set -euo pipefail
+          [[ "$REPO" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]] || { echo "::error::invalid repo: $REPO"; exit 1; }
+          [[ "$REF" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "::error::invalid ref: $REF"; exit 1; }
+          [[ "$PACKAGES" =~ ^[A-Za-z0-9_\ -]+$ ]] || { echo "::error::invalid packages: $PACKAGES"; exit 1; }
+          linux='{"platform":"linux","os":"ubuntu-latest"}'
+          macos='{"platform":"macos","os":"macos-latest"}'
+          windows='{"platform":"windows","os":"windows-latest"}'
+          case "$PLATFORMS" in
+            all) rows="$linux,$macos,$windows" ;;
+            windows) rows="$windows" ;;
+            macos) rows="$macos" ;;
+            linux) rows="$linux" ;;
+            windows+macos) rows="$macos,$windows" ;;
+            *) echo "::error::invalid platforms: $PLATFORMS"; exit 1 ;;
+          esac
+          echo "matrix={\"include\":[$rows]}" >> "$GITHUB_OUTPUT"
+
+  check:
+    name: ${{ matrix.platform }}
+    needs: plan
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      CARGO_TERM_COLOR: always
+      # The repository routes rustc through sccache, which the runners don't have.
+      CARGO_BUILD_RUSTC_WRAPPER: ""
+      # skippy-ffi builds llama.cpp itself (static, CPU) when no build is supplied.
+      LLAMA_STAGE_BACKEND: cpu
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          repository: ${{ inputs.repo }}
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: stable
+          components: clippy
+
+      - name: Cache the llama.cpp build
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: .deps
+          key: llama-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('skippy/llama_cpp/upstream.txt', 'skippy/llama_cpp/patches/**', 'skippy/scripts/build-llama.sh', 'skippy/scripts/prepare-llama.sh') }}
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: ${{ inputs.packages }}
+
+      - name: Show the checked-out commit
+        run: |
+          git log -1 --format='%H %s'
+          rustc --version
+
+      - name: Clippy
+        env:
+          PACKAGES: ${{ inputs.packages }}
+        run: |
+          set -euo pipefail
+          args=()
+          for p in $PACKAGES; do args+=(-p "$p"); done
+          cargo clippy --locked "${args[@]}" --all-targets -- -D warnings
+
+      - name: Tests
+        if: ${{ inputs.tests }}
+        env:
+          PACKAGES: ${{ inputs.packages }}
+        run: |
+          set -euo pipefail
+          args=()
+          for p in $PACKAGES; do args+=(-p "$p"); done
+          cargo test --locked "${args[@]}" 2>&1 | tee "$RUNNER_TEMP/test.log"
+          {
+            echo "### ${{ matrix.platform }}: \`$(git rev-parse --short HEAD)\`"
+            grep -E '^test result:' "$RUNNER_TEMP/test.log" | sed 's/^/- /'
+          } >> "$GITHUB_STEP_SUMMARY"
