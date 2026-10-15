@@ -28,6 +28,6 @@ Inputs:
 ## Notes
 
 - The platform setup follows upstream's platform checks (`ci-platform-checks-slice.yml`): runner images `ubuntu-24.04`, `macos-15`, `windows-2022`; the checked-out repository's own `setup-windows-short-paths` and `setup-macos-lld` actions; `msvc-dev-cmd` on Windows; `sccache` (cached in this repo).
-- `features=auto` turns on `mesh-llm-system/dynamic-native-runtime` when the packages include `mesh-llm-system` or `mesh-llm-commands`, as upstream's Windows unit row does: `skippy-ffi`'s build script then returns early, so no llama.cpp build is needed. Upstream's macOS row builds a static Metal llama.cpp instead; that static linking path is not exercised here.
+- `features=auto` follows upstream's rows: on Windows, where `skippy-ffi`'s llama.cpp build script doesn't run, packages that reach it (`mesh-llm-system`, `mesh-llm-commands`) get `mesh-llm-system/dynamic-native-runtime`, whose build script returns early. Linux and macOS keep the default static build: `skippy-ffi` builds a CPU llama.cpp itself (`.deps` cached per platform and pin). Upstream's macOS row uses a static Metal build instead.
 - Small crates (`mesh-llm-system`, `mesh-llm-plugin`, `skippy-protocol`) are fast; the full `mesh-llm` binary is not the target here.
 - Inputs reach the shell only through environment variables and are validated in the `plan` job.

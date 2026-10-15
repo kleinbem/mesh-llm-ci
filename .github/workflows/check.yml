@@ -88,6 +88,8 @@ jobs:
       CARGO_TERM_COLOR: always
       # The repository routes rustc through sccache; keep it, cached in this repo.
       SCCACHE_GHA_ENABLED: "true"
+      # Linux and macOS: skippy-ffi builds a static CPU llama.cpp itself (cached below).
+      LLAMA_STAGE_BACKEND: cpu
     defaults:
       run:
         shell: bash
@@ -114,10 +116,21 @@ jobs:
         if: ${{ matrix.platform == 'macos' }}
         uses: ./.github/actions/setup-macos-lld
 
+      - name: Install macOS build dependencies
+        if: ${{ matrix.platform == 'macos' }}
+        run: brew install cmake ninja
+
       - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
         if: ${{ matrix.platform == 'windows' }}
         with:
           arch: x64
+
+      - name: Cache the llama.cpp build
+        if: ${{ matrix.platform != 'windows' }}
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: .deps
+          key: llama-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('skippy/llama_cpp/upstream.txt', 'skippy/llama_cpp/patches/**', 'skippy/scripts/build-llama.sh', 'skippy/scripts/prepare-llama.sh') }}
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -128,19 +141,23 @@ jobs:
         env:
           PACKAGES: ${{ inputs.packages }}
           FEATURES: ${{ inputs.features }}
+          PLATFORM: ${{ matrix.platform }}
         run: |
           set -euo pipefail
           git log -1 --format='%H %s'
           rustc --version
-          # As upstream's Windows unit row: with the dynamic native runtime,
-          # skippy-ffi's build script returns early, so no llama.cpp build is
-          # needed (upstream's macOS row builds a static Metal llama.cpp instead).
+          # As upstream's Windows unit row: there skippy-ffi's llama.cpp build
+          # script doesn't run, so the packages that reach it use the dynamic
+          # native runtime, whose build script returns early. Linux and macOS
+          # keep the default static build, as upstream's rows do.
           case "$FEATURES" in
             auto)
               features=""
-              for p in $PACKAGES; do
-                case "$p" in mesh-llm-system|mesh-llm-commands) features="mesh-llm-system/dynamic-native-runtime" ;; esac
-              done ;;
+              if [ "$PLATFORM" = windows ]; then
+                for p in $PACKAGES; do
+                  case "$p" in mesh-llm-system|mesh-llm-commands) features="mesh-llm-system/dynamic-native-runtime" ;; esac
+                done
+              fi ;;
             none) features="" ;;
             *) features="$FEATURES" ;;
           esac
