@@ -2,15 +2,15 @@
 
 Run Mesh-LLM crate checks and tests on GitHub's Windows and macOS runners for any fork commit, before opening an upstream PR.
 
-Upstream CI ([Mesh-LLM/mesh-llm](https://github.com/Mesh-LLM/mesh-llm)) runs a fork PR only after a maintainer approves it. This repo gives the same platforms earlier, without loading a workstation: Clippy (`-D warnings`, all targets) and `cargo test` for the chosen packages, on Linux, macOS (Apple Silicon) and Windows (MSVC).
+Upstream CI ([Mesh-LLM/mesh-llm](https://github.com/Mesh-LLM/mesh-llm)) runs a fork PR only after a maintainer approves it, and its Linux and Clippy jobs need a private runner image, so they can't run on a fork. This repo is a pre-flight check, not a replica: upstream's own planner (`xtask ci plan`) decides which crates get Clippy and tests and which platform rows run, and the platform setup reuses the checked-out repository's own actions.
 
 ## Run
 
+Take the full commit SHA from git or the API, never type it:
+
 ```sh
-gh workflow run check.yml -R kleinbem/mesh-llm-ci \
-  -f ref=<commit-or-branch> \
-  -f packages="mesh-llm-system" \
-  -f platforms=windows+macos
+sha=$(gh pr view <N> -R Mesh-LLM/mesh-llm --json headRefOid -q .headRefOid)
+gh workflow run check.yml -R kleinbem/mesh-llm-ci -f ref="$sha"
 gh run watch -R kleinbem/mesh-llm-ci
 ```
 
@@ -19,15 +19,24 @@ Inputs:
 | Input | Default | Meaning |
 |---|---|---|
 | `repo` | `kleinbem/mesh-llm` | Repository to check out |
-| `ref` | (required) | Commit SHA, branch or tag |
-| `packages` | `mesh-llm-system` | Space-separated Cargo packages |
-| `platforms` | `all` | `all`, `windows`, `macos`, `linux`, `windows+macos` |
-| `features` | `auto` | Cargo features; `auto` or `none` |
-| `tests` | `true` | Run `cargo test` after Clippy |
+| `ref` | (required) | Full commit SHA, branch or tag |
+| `upstream` | `Mesh-LLM/mesh-llm` | Repository whose `main` is the base |
+| `packages` | `auto` | `auto` = upstream planner; or packages to test on every platform |
+| `title` | (empty) | PR title to check like the squash commit subject |
 
-## Notes
+## Jobs
 
-- The platform setup follows upstream's platform checks (`ci-platform-checks-slice.yml`): runner images `ubuntu-24.04`, `macos-15`, `windows-2022`; the checked-out repository's own `setup-windows-short-paths` and `setup-macos-lld` actions; `msvc-dev-cmd` on Windows; `sccache` (cached in this repo).
-- `features=auto` follows upstream's rows: on Windows, where `skippy-ffi`'s llama.cpp build script doesn't run, packages that reach it (`mesh-llm-system`, `mesh-llm-commands`) get `mesh-llm-system/dynamic-native-runtime`, whose build script returns early. Linux and macOS keep the default static build: `skippy-ffi` builds a CPU llama.cpp itself (`.deps` cached per platform and pin). Upstream's macOS row uses a static Metal build instead.
-- Small crates (`mesh-llm-system`, `mesh-llm-plugin`, `skippy-protocol`) are fast; the full `mesh-llm` binary is not the target here.
+| Job | Like upstream's | What it runs |
+|---|---|---|
+| Plan | `plan-ci` | merge base with upstream `main`, changed files, `xtask ci plan` (profile `pr-ready`) |
+| Quality | Quality lane | `cargo fmt --check`, commit convention for `base..ref` (and `title`), Clippy `-D warnings` over the planned crates, `no-console-print`, env-mutation census, `ci-crate-lists`, `cargo machete` |
+| Rust tests | Linux rust-tests slice | `cargo test` per planned batch, static CPU llama.cpp |
+| macOS / Windows unit tests | platform checks (unit rows the planner selects) | `cargo test --lib` of the directly changed crates |
+
+## Differences from upstream
+
+- Linux jobs run on `ubuntu-24.04` instead of the private `ghcr.io/mesh-llm/mesh-llm-cuda-runner` image.
+- `skippy-ffi` builds a static CPU llama.cpp itself (Linux, macOS; `.deps` cached per platform and pin); upstream's macOS row uses a static Metal build. On Windows, crates that reach `skippy-ffi` use `mesh-llm-system/dynamic-native-runtime`, as upstream's Windows unit row does.
+- Platform rows test the directly changed crates; upstream resolves its own owner lists per row.
+- No product builds, smokes, SDK or GPU rows.
 - Inputs reach the shell only through environment variables and are validated in the `plan` job.
