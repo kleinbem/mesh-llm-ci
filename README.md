@@ -22,6 +22,7 @@ Inputs:
 | `ref` | (required) | Full commit SHA, branch or tag |
 | `upstream` | `Mesh-LLM/mesh-llm` | Repository whose `main` is the base |
 | `packages` | `auto` | `auto` = upstream planner; or packages to test on every platform |
+| `filter` | (empty) | Test name filter for the macOS/Windows rows, e.g. one module's tests |
 | `title` | (empty) | PR title to check like the squash commit subject |
 | `toolchain` | `1.98.1` | Rust toolchain; keep it at the version of upstream's runner image (the `cargo` version in its Clippy job log). A newer stable can fail Clippy on deprecations upstream doesn't see yet. |
 
@@ -32,7 +33,7 @@ Inputs:
 | Plan | `plan-ci` | merge base with upstream `main`, changed files, `xtask ci plan` (profile `pr-ready`) |
 | Quality | Quality lane | `cargo fmt --check`, commit convention for `base..ref` (and `title`), Clippy `-D warnings` over the planned crates, `no-console-print`, env-mutation census, `ci-crate-lists`, `cargo machete` |
 | Rust tests | Linux rust-tests slice | `cargo test` per planned batch, static CPU llama.cpp |
-| macOS / Windows unit tests | platform checks (unit rows the planner selects) | `cargo test --lib` of the directly changed crates |
+| macOS / Windows unit tests | platform checks (unit rows the planner selects) | `cargo test --lib` of the directly changed crates (`--bins` for binary-only crates such as `xtask`), optionally narrowed by `filter` |
 
 ## Differences from upstream
 
