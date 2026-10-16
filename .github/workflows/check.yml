@@ -24,6 +24,10 @@ on:
         description: '"auto" = upstream planner; or space-separated Cargo packages to test on every platform'
         default: auto
         required: true
+      filter:
+        description: Optional test name filter for the macOS/Windows rows (cargo test <filter>)
+        default: ""
+        required: false
       title:
         description: Optional PR title to check like the squash commit subject
         default: ""
@@ -37,7 +41,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: check-${{ inputs.repo }}-${{ inputs.ref }}-${{ inputs.packages }}
+  group: check-${{ inputs.repo }}-${{ inputs.ref }}-${{ inputs.packages }}-${{ inputs.filter }}
   cancel-in-progress: false
 
 env:
@@ -63,6 +67,7 @@ jobs:
           REF: ${{ inputs.ref }}
           UPSTREAM: ${{ inputs.upstream }}
           PACKAGES: ${{ inputs.packages }}
+          FILTER: ${{ inputs.filter }}
           TOOLCHAIN: ${{ inputs.toolchain }}
         run: |
           set -euo pipefail
@@ -70,6 +75,7 @@ jobs:
           [[ "$UPSTREAM" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]] || { echo "::error::invalid upstream"; exit 1; }
           [[ "$REF" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "::error::invalid ref"; exit 1; }
           [[ "$PACKAGES" =~ ^[A-Za-z0-9_\ -]+$ ]] || { echo "::error::invalid packages"; exit 1; }
+          [[ "$FILTER" =~ ^[A-Za-z0-9_:]*$ ]] || { echo "::error::invalid filter"; exit 1; }
           [[ "$TOOLCHAIN" =~ ^(stable|beta|nightly|[0-9]+\.[0-9]+(\.[0-9]+)?)$ ]] || { echo "::error::invalid toolchain"; exit 1; }
 
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -301,16 +307,23 @@ jobs:
           # Not PLATFORM: Windows env names are case-insensitive, and msvc-dev-cmd
           # sets Platform=x64.
           CHECK_PLATFORM: ${{ matrix.platform }}
+          FILTER: ${{ inputs.filter }}
         run: |
           set -euo pipefail
           for c in $PACKAGES; do
-            args=(-p "$c" --lib)
+            # Unit tests live in the library, or in the binaries of a binary-only
+            # crate (xtask).
+            libs=$(cargo metadata --no-deps --format-version 1 | jq --arg c "$c" \
+              '[.packages[] | select(.name == $c) | .targets[].kind[]
+                | select(IN("lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macro"))] | length')
+            if [ "$libs" -gt 0 ]; then args=(-p "$c" --lib); else args=(-p "$c" --bins); fi
             # As upstream's Windows unit row: skippy-ffi's llama.cpp build script
             # doesn't run on Windows, so crates that reach it use the dynamic
             # native runtime, whose build script returns early.
             if [ "$CHECK_PLATFORM" = windows ]; then
               case "$c" in mesh-llm-system|mesh-llm-commands) args+=(--features mesh-llm-system/dynamic-native-runtime) ;; esac
             fi
+            if [ -n "$FILTER" ]; then args+=("$FILTER"); fi
             echo "::group::cargo test ${args[*]}"
             cargo test --locked "${args[@]}"
             echo "::endgroup::"
