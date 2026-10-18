@@ -60,6 +60,9 @@ jobs:
       tests: ${{ steps.plan.outputs.tests }}
       platforms: ${{ steps.plan.outputs.platforms }}
       packages: ${{ steps.plan.outputs.packages }}
+      shared_crates: ${{ steps.plan.outputs.shared_crates }}
+      windows_crates: ${{ steps.plan.outputs.windows_crates }}
+      windows_dynamic_crates: ${{ steps.plan.outputs.windows_dynamic_crates }}
     steps:
       - name: Validate inputs
         env:
@@ -118,16 +121,34 @@ jobs:
             tests=$(jq -c '{include: [.matrices.rust_tests[] | {id, crates: (.crates | join(" "))}]}' "$RUNNER_TEMP/plan.json")
             packages=$(jq -r '.direct_crates | join(" ")' "$RUNNER_TEMP/plan.json")
             platforms=$(jq -c '[.matrices.platform_checks[] | select(.kind == "unit") | .platform] | unique' "$RUNNER_TEMP/plan.json")
+            # Upstream's platform rows test fixed crate sets from this workflow,
+            # resolved by its own resolver, not every directly changed crate.
+            wf=.github/workflows/ci-platform-checks-slice.yml
+            upstream_crates() {
+              local spec
+              spec=$(yq -o=json "[.. | select(has(\"id\") and .id == \"$1\")][0].with" "$wf")
+              target/debug/xtask repository cargo-packages --generation "$(jq -r .generation <<<"$spec")" \
+                --crates "$(jq -r .crates <<<"$spec")" --cargo "$(command -v cargo)"
+            }
+            shared_crates=$(upstream_crates packages)
+            windows_crates=$(upstream_crates windows_packages)
+            windows_dynamic_crates=$(upstream_crates windows_dynamic_packages)
           else
             clippy=$(jq -Rc 'split(" ") | map(select(length > 0))' <<<"$PACKAGES")
             tests=$(jq -Rc '{include: [{id: "packages", crates: .}]}' <<<"$PACKAGES")
             packages="$PACKAGES"
             platforms='["macos","windows"]'
+            shared_crates=$(jq -Rc 'split(" ") | map(select(length > 0))' <<<"$PACKAGES")
+            windows_crates='[]'
+            windows_dynamic_crates='[]'
           fi
           {
             echo "clippy=$clippy"
             echo "tests=$tests"
             echo "packages=$packages"
+            echo "shared_crates=$shared_crates"
+            echo "windows_crates=$windows_crates"
+            echo "windows_dynamic_crates=$windows_dynamic_crates"
             echo "platforms=$(jq -c '{include: [.[] | if . == "macos" then {platform: ., os: "macos-15"} else {platform: ., os: "windows-2022"} end]}' <<<"$platforms")"
           } >> "$GITHUB_OUTPUT"
           {
@@ -136,7 +157,7 @@ jobs:
             echo "- Domains: $(jq -r '.domains | join(", ")' "$RUNNER_TEMP/plan.json")"
             echo "- Clippy: $(jq -r 'join(" ")' <<<"$clippy")"
             echo "- Test batches: $(jq -r '[.include[].crates] | join(" | ")' <<<"$tests")"
-            echo "- Platform rows: $(jq -r 'join(", ")' <<<"$platforms") (directly changed crates: ${packages:-none})"
+            echo "- Platform rows: $(jq -r 'join(", ")' <<<"$platforms"): $(jq -r 'join(" ")' <<<"$shared_crates"); Windows also $(jq -r 'join(" ")' <<<"$windows_crates") and, with the dynamic runtime, $(jq -r 'join(" ")' <<<"$windows_dynamic_crates")"
           } >> "$GITHUB_STEP_SUMMARY"
 
   quality:
@@ -303,28 +324,43 @@ jobs:
           key: llama-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('skippy/llama_cpp/upstream.txt', 'skippy/llama_cpp/patches/**', 'skippy/scripts/build-llama.sh', 'skippy/scripts/prepare-llama.sh') }}
       - name: Tests of the directly changed crates
         env:
-          PACKAGES: ${{ needs.plan.outputs.packages }}
+          SHARED_CRATES: ${{ needs.plan.outputs.shared_crates }}
+          WINDOWS_CRATES: ${{ needs.plan.outputs.windows_crates }}
+          WINDOWS_DYNAMIC_CRATES: ${{ needs.plan.outputs.windows_dynamic_crates }}
           # Not PLATFORM: Windows env names are case-insensitive, and msvc-dev-cmd
           # sets Platform=x64.
           CHECK_PLATFORM: ${{ matrix.platform }}
           FILTER: ${{ inputs.filter }}
         run: |
           set -euo pipefail
-          for c in $PACKAGES; do
+          run_test() {
+            local c=$1
+            shift
             # Unit tests live in the library, or in the binaries of a binary-only
             # crate (xtask).
             libs=$(cargo metadata --no-deps --format-version 1 | jq --arg c "$c" \
               '[.packages[] | select(.name == $c) | .targets[].kind[]
                 | select(IN("lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macro"))] | length')
             if [ "$libs" -gt 0 ]; then args=(-p "$c" --lib); else args=(-p "$c" --bins); fi
-            # As upstream's Windows unit row: skippy-ffi's llama.cpp build script
-            # doesn't run on Windows, so crates that reach it use the dynamic
-            # native runtime, whose build script returns early.
-            if [ "$CHECK_PLATFORM" = windows ]; then
-              case "$c" in mesh-llm-system|mesh-llm-commands) args+=(--features mesh-llm-system/dynamic-native-runtime) ;; esac
-            fi
+            args+=("$@")
             if [ -n "$FILTER" ]; then args+=("$FILTER"); fi
             echo "::group::cargo test ${args[*]}"
             cargo test --locked "${args[@]}"
             echo "::endgroup::"
+          }
+          # As upstream's rows: on Windows skippy-ffi's llama.cpp build script
+          # doesn't run, so crates that reach it use the dynamic native runtime,
+          # whose build script returns early.
+          for c in $(jq -r '.[]' <<<"$SHARED_CRATES" | tr -d '\r'); do
+            if [ "$CHECK_PLATFORM" = windows ] && [ "$c" = mesh-llm-skippy-adapter ]; then
+              run_test "$c" --features mesh-llm-skippy-adapter/dynamic-native-runtime
+            else
+              run_test "$c"
+            fi
           done
+          if [ "$CHECK_PLATFORM" = windows ]; then
+            for c in $(jq -r '.[]' <<<"$WINDOWS_CRATES" | tr -d '\r'); do run_test "$c"; done
+            for c in $(jq -r '.[]' <<<"$WINDOWS_DYNAMIC_CRATES" | tr -d '\r'); do
+              run_test "$c" --features mesh-llm-system/dynamic-native-runtime
+            done
+          fi
