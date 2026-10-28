@@ -28,6 +28,12 @@ on:
         description: Optional test name filter for the macOS/Windows rows (cargo test <filter>)
         default: ""
         required: false
+      targets:
+        description: 'Test targets of the macOS/Windows rows: "lib" as upstream runs them, or "all" to add integration tests'
+        type: choice
+        options: [lib, all]
+        default: lib
+        required: true
       title:
         description: Optional PR title to check like the squash commit subject
         default: ""
@@ -116,20 +122,20 @@ jobs:
               changed_files: (split("\n") | map(select(length > 0)))}' "$RUNNER_TEMP/changed.txt" \
             | target/debug/xtask ci plan --manifest-root "$manifests" > "$RUNNER_TEMP/plan.json"
           jq -c '{domains, required_slices}' "$RUNNER_TEMP/plan.json"
+          # Upstream's platform rows test fixed crate sets from this workflow,
+          # resolved by its own resolver, not every directly changed crate.
+          wf=.github/workflows/ci-platform-checks-slice.yml
+          upstream_crates() {
+            local spec
+            spec=$(yq -o=json "[.. | select(has(\"id\") and .id == \"$1\")][0].with" "$wf")
+            target/debug/xtask repository cargo-packages --generation "$(jq -r .generation <<<"$spec")" \
+              --crates "$(jq -r .crates <<<"$spec")" --cargo "$(command -v cargo)"
+          }
           if [ "$PACKAGES" = auto ]; then
             clippy=$(jq -c '[.matrices.clippy[].crates[]] | unique' "$RUNNER_TEMP/plan.json")
             tests=$(jq -c '{include: [.matrices.rust_tests[] | {id, crates: (.crates | join(" "))}]}' "$RUNNER_TEMP/plan.json")
             packages=$(jq -r '.direct_crates | join(" ")' "$RUNNER_TEMP/plan.json")
             platforms=$(jq -c '[.matrices.platform_checks[] | select(.kind == "unit") | .platform] | unique' "$RUNNER_TEMP/plan.json")
-            # Upstream's platform rows test fixed crate sets from this workflow,
-            # resolved by its own resolver, not every directly changed crate.
-            wf=.github/workflows/ci-platform-checks-slice.yml
-            upstream_crates() {
-              local spec
-              spec=$(yq -o=json "[.. | select(has(\"id\") and .id == \"$1\")][0].with" "$wf")
-              target/debug/xtask repository cargo-packages --generation "$(jq -r .generation <<<"$spec")" \
-                --crates "$(jq -r .crates <<<"$spec")" --cargo "$(command -v cargo)"
-            }
             shared_crates=$(upstream_crates packages)
             windows_crates=$(upstream_crates windows_packages)
             windows_dynamic_crates=$(upstream_crates windows_dynamic_packages)
@@ -140,7 +146,10 @@ jobs:
             platforms='["macos","windows"]'
             shared_crates=$(jq -Rc 'split(" ") | map(select(length > 0))' <<<"$PACKAGES")
             windows_crates='[]'
-            windows_dynamic_crates='[]'
+            # Given crates that upstream tests on Windows with the dynamic
+            # runtime get it here too; skippy-ffi's build doesn't run there.
+            windows_dynamic_crates=$(jq -c --argjson d "$(upstream_crates windows_dynamic_packages)" \
+              'map(select(IN($d[])))' <<<"$shared_crates")
           fi
           {
             echo "clippy=$clippy"
@@ -331,6 +340,7 @@ jobs:
           # sets Platform=x64.
           CHECK_PLATFORM: ${{ matrix.platform }}
           FILTER: ${{ inputs.filter }}
+          TARGETS: ${{ inputs.targets }}
         run: |
           set -euo pipefail
           run_test() {
@@ -341,7 +351,13 @@ jobs:
             libs=$(cargo metadata --no-deps --format-version 1 | jq --arg c "$c" \
               '[.packages[] | select(.name == $c) | .targets[].kind[]
                 | select(IN("lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macro"))] | length')
-            if [ "$libs" -gt 0 ]; then args=(-p "$c" --lib); else args=(-p "$c" --bins); fi
+            if [ "$TARGETS" = all ]; then
+              args=(-p "$c")
+            elif [ "$libs" -gt 0 ]; then
+              args=(-p "$c" --lib)
+            else
+              args=(-p "$c" --bins)
+            fi
             args+=("$@")
             if [ -n "$FILTER" ]; then args+=("$FILTER"); fi
             echo "::group::cargo test ${args[*]}"
@@ -352,7 +368,9 @@ jobs:
           # doesn't run, so crates that reach it use the dynamic native runtime,
           # whose build script returns early.
           for c in $(jq -r '.[]' <<<"$SHARED_CRATES" | tr -d '\r'); do
-            if [ "$CHECK_PLATFORM" = windows ] && [ "$c" = mesh-llm-skippy-adapter ]; then
+            if [ "$CHECK_PLATFORM" = windows ] && jq -e --arg c "$c" 'index($c)' <<<"$WINDOWS_DYNAMIC_CRATES" >/dev/null; then
+              continue
+            elif [ "$CHECK_PLATFORM" = windows ] && [ "$c" = mesh-llm-skippy-adapter ]; then
               run_test "$c" --features mesh-llm-skippy-adapter/dynamic-native-runtime
             else
               run_test "$c"
