@@ -23,6 +23,7 @@ Inputs:
 | `upstream` | `Mesh-LLM/mesh-llm` | Repository whose `main` is the base |
 | `packages` | `auto` | `auto` = upstream planner; or packages to test on every platform |
 | `filter` | (empty) | Test name filter for the macOS/Windows rows, e.g. one module's tests |
+| `targets` | `lib` | `all` also runs the integration tests (`tests/`) on macOS/Windows, which upstream's rows don't |
 | `title` | (empty) | PR title to check like the squash commit subject |
 | `toolchain` | `1.98.1` | Rust toolchain; keep it at the version of upstream's runner image (the `cargo` version in its Clippy job log). A newer stable can fail Clippy on deprecations upstream doesn't see yet. |
 
@@ -46,12 +47,12 @@ MESH_LLM_NATIVE_RUNTIME_BUNDLE_DIR="$RUNNER_TEMP/bundle" cargo test -p mesh-llm-
 | Plan | `plan-ci` | merge base with upstream `main`, changed files, `xtask ci plan` (profile `pr-ready`) |
 | Quality | Quality lane | `cargo fmt --check`, commit convention for `base..ref` (and `title`), Clippy `-D warnings` over the planned crates, `no-console-print`, env-mutation census, `ci-crate-lists`, `cargo machete` |
 | Rust tests | Linux rust-tests slice | `cargo test` per planned batch, static CPU llama.cpp |
-| macOS / Windows unit tests | platform checks (unit rows the planner selects) | `cargo test --lib` of the directly changed crates (`--bins` for binary-only crates such as `xtask`), optionally narrowed by `filter` |
+| macOS / Windows unit tests | platform checks (unit rows the planner selects) | `cargo test --lib` (`--bins` for binary-only crates such as `xtask`), optionally narrowed by `filter`, of upstream's fixed crate lists for these rows with `packages: auto`, or of the given `packages`; `targets: all` runs plain `cargo test` instead (lib, bins, `tests/`, doctests) |
 
 ## Differences from upstream
 
 - Linux jobs run on `ubuntu-24.04` instead of the private `ghcr.io/mesh-llm/mesh-llm-cuda-runner` image.
 - `skippy-ffi` builds a static CPU llama.cpp itself (Linux, macOS; `.deps` cached per platform and pin); upstream's macOS row uses a static Metal build. On Windows, crates that reach `skippy-ffi` use `mesh-llm-system/dynamic-native-runtime`, as upstream's Windows unit row does.
-- Platform rows test the directly changed crates; upstream resolves its own owner lists per row.
+- With `packages: auto` the platform rows test upstream's fixed crate lists, not every changed crate, so `targets: all` doesn't reach the integration tests of a changed crate outside them. Name the crates in `packages` to cover those.
 - No product builds, smokes, SDK or GPU rows.
 - Inputs reach the shell only through environment variables and are validated in the `plan` job.
