@@ -331,7 +331,7 @@ jobs:
         with:
           path: .deps
           key: llama-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('skippy/llama_cpp/upstream.txt', 'skippy/llama_cpp/patches/**', 'skippy/scripts/build-llama.sh', 'skippy/scripts/prepare-llama.sh') }}
-      - name: Tests of the directly changed crates
+      - name: Tests of the platform crate lists
         env:
           SHARED_CRATES: ${{ needs.plan.outputs.shared_crates }}
           WINDOWS_CRATES: ${{ needs.plan.outputs.windows_crates }}
