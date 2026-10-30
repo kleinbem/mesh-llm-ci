@@ -26,6 +26,19 @@ Inputs:
 | `title` | (empty) | PR title to check like the squash commit subject |
 | `toolchain` | `1.98.1` | Rust toolchain; keep it at the version of upstream's runner image (the `cargo` version in its Clippy job log). A newer stable can fail Clippy on deprecations upstream doesn't see yet. |
 
+## Run a script
+
+For checks the fixed lanes can't express (extra environment, a fake fixture, a built binary's output, a race repeated under load), `run.yml` runs a bash script from the checkout root on one platform, with the same toolchain and llama.cpp setup:
+
+```sh
+gh workflow run run.yml -R kleinbem/mesh-llm-ci -f repo=kleinbem/mesh-llm -f ref="$sha" -f platform=linux -f script='
+mkdir -p "$RUNNER_TEMP/bundle"
+MESH_LLM_NATIVE_RUNTIME_BUNDLE_DIR="$RUNNER_TEMP/bundle" cargo test -p mesh-llm-host-runtime --lib native_runtime
+'
+```
+
+`repo` is the PR's head repository (`kleinbem/mesh-llm` for our PRs); `platform` is `linux` (default), `macos` or `windows`. The script runs with `set -euo pipefail`.
+
 ## Jobs
 
 | Job | Like upstream's | What it runs |
