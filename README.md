@@ -46,6 +46,7 @@ MESH_LLM_NATIVE_RUNTIME_BUNDLE_DIR="$RUNNER_TEMP/bundle" cargo test -p mesh-llm-
 |---|---|---|
 | Plan | `plan-ci` | merge base with upstream `main`, changed files, `xtask ci plan` (profile `pr-ready`) |
 | Quality | Quality lane | `cargo fmt --check`, commit convention for `base..ref` (and `title`), Clippy `-D warnings` over the planned crates, `no-console-print`, env-mutation census, `ci-crate-lists`, `cargo machete` |
+| CI contracts | Quality's "CI contracts and consistency" | actionlint, `just ci-automation-contracts` and `ci-legacy-contracts` (the xtask contract tests, e.g. the env mutation census baseline), `publish-crates`, `release-targets` |
 | Rust tests | Linux rust-tests slice | `cargo test` per planned batch, static CPU llama.cpp |
 | macOS / Windows unit tests | platform checks (unit rows the planner selects) | `cargo test --lib` (`--bins` for binary-only crates such as `xtask`), optionally narrowed by `filter`, of upstream's fixed crate lists for these rows with `packages: auto`, or of the given `packages`; `targets: all` runs plain `cargo test` instead (lib, bins, `tests/`, doctests) |
 
