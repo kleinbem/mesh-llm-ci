@@ -1,10 +1,9 @@
 name: Check
 
-# Pre-flight checks for a Mesh-LLM fork commit before (or while) an upstream PR
-# waits for CI approval. Upstream's own planner (`xtask ci plan`) decides, as in
-# upstream's PR lanes, which crates get Clippy and tests and which platform rows
-# run. Started by hand or with
-# `gh workflow run check.yml -R kleinbem/mesh-llm-ci -f ref=<full sha>`.
+# Pre-flight checks for a Mesh-LLM fork commit while an upstream PR waits for CI
+# approval. Upstream's own planner (`xtask ci plan`) picks the crates and rows.
+# no-link: approval-gated fork CI is upstream policy, not a bug; this covers any PR.
+#   gh workflow run check.yml -R kleinbem/mesh-llm-ci -f ref=<full sha>
 
 on:
   workflow_dispatch:

@@ -1,10 +1,9 @@
 name: Run
 
 # Runs a bash script against a Mesh-LLM fork commit, for checks check.yml's
-# fixed lanes can't express: a test with extra environment or a fake fixture,
-# a built binary's output, a race repeated under load. Started with
-# `gh workflow run run.yml -R kleinbem/mesh-llm-ci -f ref=<full sha> -f script=...`.
-# Only collaborators can dispatch, and the job holds no secrets, so the script
+# fixed lanes can't express (extra env, a built binary's output, a race under load).
+#   gh workflow run run.yml -R kleinbem/mesh-llm-ci -f ref=<full sha> -f script=...
+# Only collaborators can dispatch and the job holds no secrets, so the script
 # gets no more than a pushed workflow would.
 
 on:
