@@ -88,7 +88,7 @@ jobs:
           [[ "$FILTER" =~ ^[A-Za-z0-9_:]*$ ]] || { echo "::error::invalid filter"; exit 1; }
           [[ "$TOOLCHAIN" =~ ^(stable|beta|nightly|[0-9]+\.[0-9]+(\.[0-9]+)?)$ ]] || { echo "::error::invalid toolchain"; exit 1; }
 
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.repo }}
           ref: ${{ inputs.ref }}
@@ -187,7 +187,7 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /opt/hostedtoolcache/CodeQL
           df -h /
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.repo }}
           ref: ${{ needs.plan.outputs.head }}
@@ -254,7 +254,7 @@ jobs:
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_PROFILE_TEST_DEBUG: "0"
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.repo }}
           ref: ${{ needs.plan.outputs.head }}
@@ -309,7 +309,7 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /opt/hostedtoolcache/CodeQL
           df -h /
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.repo }}
           ref: ${{ needs.plan.outputs.head }}
@@ -350,7 +350,7 @@ jobs:
       # macOS: skippy-ffi builds a static CPU llama.cpp itself (cached below).
       LLAMA_STAGE_BACKEND: cpu
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ inputs.repo }}
           ref: ${{ needs.plan.outputs.head }}
