@@ -199,7 +199,7 @@ jobs:
           components: clippy, rustfmt
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       - name: Cache the llama.cpp build
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .deps
           key: llama-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('skippy/llama_cpp/upstream.txt', 'skippy/llama_cpp/patches/**', 'skippy/scripts/build-llama.sh', 'skippy/scripts/prepare-llama.sh') }}
@@ -319,7 +319,7 @@ jobs:
           toolchain: ${{ inputs.toolchain }}
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       - name: Cache the llama.cpp build
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .deps
           key: llama-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('skippy/llama_cpp/upstream.txt', 'skippy/llama_cpp/patches/**', 'skippy/scripts/build-llama.sh', 'skippy/scripts/prepare-llama.sh') }}
@@ -375,7 +375,7 @@ jobs:
           arch: x64
       - name: Cache the llama.cpp build
         if: ${{ matrix.platform == 'macos' }}
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .deps
           key: llama-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('skippy/llama_cpp/upstream.txt', 'skippy/llama_cpp/patches/**', 'skippy/scripts/build-llama.sh', 'skippy/scripts/prepare-llama.sh') }}
