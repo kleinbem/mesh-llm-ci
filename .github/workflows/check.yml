@@ -46,7 +46,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: check-${{ inputs.repo }}-${{ inputs.ref }}-${{ inputs.upstream }}-${{ inputs.packages }}-${{ inputs.filter }}-${{ inputs.targets }}-${{ inputs.toolchain }}-${{ inputs.title }}
+  # "|" can't occur in repo names, refs, crate names or versions; free text goes last.
+  group: check|${{ inputs.repo }}|${{ inputs.ref }}|${{ inputs.upstream }}|${{ inputs.packages }}|${{ inputs.targets }}|${{ inputs.toolchain }}|${{ inputs.filter }}|${{ inputs.title }}
   cancel-in-progress: false
 
 env:
