@@ -46,7 +46,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: check-${{ inputs.repo }}-${{ inputs.ref }}-${{ inputs.packages }}-${{ inputs.filter }}
+  group: check-${{ inputs.repo }}-${{ inputs.ref }}-${{ inputs.upstream }}-${{ inputs.packages }}-${{ inputs.filter }}-${{ inputs.targets }}-${{ inputs.toolchain }}-${{ inputs.title }}
   cancel-in-progress: false
 
 env:
@@ -398,7 +398,7 @@ jobs:
             # crate (xtask).
             libs=$(cargo metadata --no-deps --format-version 1 | jq --arg c "$c" \
               '[.packages[] | select(.name == $c) | .targets[].kind[]
-                | select(IN("lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macro"))] | length')
+                | select(IN("lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macro"))] | length' | tr -d '\r')
             if [ "$TARGETS" = all ]; then
               args=(-p "$c")
             elif [ "$libs" -gt 0 ]; then
