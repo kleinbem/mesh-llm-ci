@@ -132,6 +132,15 @@ jobs:
         run: |
           set -euo pipefail
           git merge-base --is-ancestor "$BASE" "$HEAD_SHA" || { echo "::error::base is not an ancestor of head"; exit 1; }
+          if [ "$RUNNER_OS" = Windows ]; then
+            # Git Bash's /usr/bin/link (coreutils) shadows MSVC's link.exe on
+            # PATH; repos without their own linker setting (buzz-app) hit it.
+            msvc_link=$(which -a link.exe | grep -v -i '^/usr/bin/' | head -1)
+            [ -n "$msvc_link" ] || { echo "::error::MSVC link.exe not found on PATH"; exit 1; }
+            CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$(cygpath -w "$msvc_link")
+            export CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER
+            echo "linker: $CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER"
+          fi
           args=(--locked --all-targets --keep-going --message-format=json)
           if [ -n "$PACKAGES" ]; then for p in $PACKAGES; do args+=(-p "$p"); done; else args+=(--workspace); fi
           [ -z "$FEATURES" ] || args+=(--features "$FEATURES")
