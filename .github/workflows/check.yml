@@ -363,6 +363,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: ${{ inputs.toolchain }}
+          components: clippy
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       - name: Configure macOS linker
         if: ${{ matrix.platform == 'macos' }}
@@ -431,3 +432,34 @@ jobs:
               run_test "$c" --features mesh-llm-system/dynamic-native-runtime
             done
           fi
+      - name: Clippy of the changed crates
+        # Upstream runs Clippy on Linux only, so code behind cfg gates can warn on
+        # these targets unnoticed (Mesh-LLM#2939: dead_code on Windows). Only the
+        # changed crates this row tests, with the same Windows features.
+        if: ${{ !cancelled() }}
+        env:
+          PACKAGES: ${{ needs.plan.outputs.packages }}
+          SHARED_CRATES: ${{ needs.plan.outputs.shared_crates }}
+          WINDOWS_CRATES: ${{ needs.plan.outputs.windows_crates }}
+          WINDOWS_DYNAMIC_CRATES: ${{ needs.plan.outputs.windows_dynamic_crates }}
+          CHECK_PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          tested=$(jq -r '.[]' <<<"$SHARED_CRATES" | tr -d '\r')
+          if [ "$CHECK_PLATFORM" = windows ]; then
+            tested+=$'\n'$(jq -r '.[]' <<<"$WINDOWS_CRATES $WINDOWS_DYNAMIC_CRATES" | tr -d '\r')
+          fi
+          for c in $PACKAGES; do
+            grep -qxF "$c" <<<"$tested" || continue
+            args=(-p "$c")
+            if [ "$CHECK_PLATFORM" = windows ] && jq -e --arg c "$c" 'index($c)' <<<"$WINDOWS_DYNAMIC_CRATES" >/dev/null; then
+              args+=(--features mesh-llm-system/dynamic-native-runtime)
+            elif [ "$CHECK_PLATFORM" = windows ] && [ "$c" = mesh-llm-skippy-adapter ]; then
+              args+=(--features mesh-llm-skippy-adapter/dynamic-native-runtime)
+            fi
+            echo "::group::cargo clippy ${args[*]}"
+            # --no-deps: the row judges the changed crate only; workspace crates
+            # it depends on are linted where they change.
+            cargo clippy --locked "${args[@]}" --all-targets --no-deps -- -D warnings
+            echo "::endgroup::"
+          done
