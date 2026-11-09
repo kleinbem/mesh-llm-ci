@@ -1,0 +1,195 @@
+name: Clippy diff
+
+# Clippy findings a change adds, compared with its base, on one platform.
+# Upstreams lint some platforms only (Mesh-LLM: Linux; buzz-app: Windows on
+# demand), so their main carries findings there and a plain -D warnings run
+# fails every change. This fails only on findings the head has and the base
+# hasn't. Works for any Rust repository, not only Mesh-LLM.
+#   gh workflow run clippy-diff.yml -R kleinbem/mesh-llm-ci -f repo=<owner/name> \
+#     -f base=<sha> -f head=<sha> -f platform=windows [-f packages=...] [-f features=...]
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: Repository to check out (owner/name); it must contain both commits
+        default: kleinbem/mesh-llm
+        required: true
+      base:
+        description: Base commit (full SHA from git or the API), usually the merge base with main
+        required: true
+      head:
+        description: Head commit (full SHA)
+        required: true
+      platform:
+        description: Runner platform
+        type: choice
+        options: [windows, macos, linux]
+        default: windows
+        required: true
+      packages:
+        description: Space-separated packages; empty lints the workspace
+        default: ""
+      features:
+        description: Comma-separated features (pkg/feature), as the platform row uses them
+        default: ""
+      toolchain:
+        description: Rust toolchain; "repo" reads rust-toolchain.toml, else e.g. 1.98.1 (upstream's runner)
+        default: repo
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  SCCACHE_GHA_ENABLED: "true"
+  # Mesh-LLM: skippy-ffi builds a static CPU llama.cpp itself. Ignored elsewhere.
+  LLAMA_STAGE_BACKEND: cpu
+
+jobs:
+  diff:
+    name: Clippy diff (${{ inputs.platform }})
+    runs-on: ${{ inputs.platform == 'macos' && 'macos-15' || inputs.platform == 'windows' && 'windows-2025' || 'ubuntu-24.04' }}
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Validate inputs
+        env:
+          REPO: ${{ inputs.repo }}
+          BASE: ${{ inputs.base }}
+          HEAD_SHA: ${{ inputs.head }}
+          PACKAGES: ${{ inputs.packages }}
+          FEATURES: ${{ inputs.features }}
+          TOOLCHAIN: ${{ inputs.toolchain }}
+        run: |
+          set -euo pipefail
+          [[ "$REPO" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]] || { echo "::error::invalid repo"; exit 1; }
+          [[ "$BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::base must be a full SHA"; exit 1; }
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::head must be a full SHA"; exit 1; }
+          [[ "$PACKAGES" =~ ^[A-Za-z0-9_\ -]*$ ]] || { echo "::error::invalid packages"; exit 1; }
+          [[ "$FEATURES" =~ ^[A-Za-z0-9_/,:-]*$ ]] || { echo "::error::invalid features"; exit 1; }
+          [[ "$TOOLCHAIN" =~ ^(repo|stable|[0-9]+\.[0-9]+(\.[0-9]+)?)$ ]] || { echo "::error::invalid toolchain"; exit 1; }
+
+      - name: Free disk space
+        if: ${{ inputs.platform == 'linux' }}
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /opt/hostedtoolcache/CodeQL
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.repo }}
+          ref: ${{ inputs.head }}
+          # The base is in the head's history; the scan checks it out by SHA.
+          fetch-depth: 0
+          persist-credentials: false
+      # The repository's own platform setup, where it has one (Mesh-LLM).
+      - uses: ./.github/actions/setup-windows-short-paths
+        if: ${{ inputs.platform == 'windows' && hashFiles('.github/actions/setup-windows-short-paths/action.yml') != '' }}
+      - name: Configure macOS linker
+        if: ${{ inputs.platform == 'macos' && hashFiles('.github/actions/setup-macos-lld/action.yml') != '' }}
+        uses: ./.github/actions/setup-macos-lld
+      - name: Install macOS build dependencies
+        if: ${{ inputs.platform == 'macos' }}
+        run: brew install cmake ninja
+      - name: Install Linux build dependencies
+        if: ${{ inputs.platform == 'linux' }}
+        # Tauri (buzz-app) and protoc (buzz, Mesh-LLM); harmless where unused.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq protobuf-compiler libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev libssl-dev pkg-config >/dev/null
+      - name: Pick the toolchain
+        id: toolchain
+        env:
+          TOOLCHAIN: ${{ inputs.toolchain }}
+        run: |
+          set -euo pipefail
+          t=$TOOLCHAIN
+          if [ "$t" = repo ]; then
+            t=$(sed -n 's/^channel *= *"\(.*\)"$/\1/p' rust-toolchain.toml 2>/dev/null | head -1)
+            [ -n "$t" ] || { echo "::error::no rust-toolchain.toml channel; pass a toolchain"; exit 1; }
+          fi
+          echo "toolchain=$t" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: ${{ steps.toolchain.outputs.toolchain }}
+          components: clippy
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        if: ${{ inputs.platform == 'windows' }}
+        with:
+          arch: x64
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+
+      - name: Clippy on base and head
+        env:
+          BASE: ${{ inputs.base }}
+          HEAD_SHA: ${{ inputs.head }}
+          PACKAGES: ${{ inputs.packages }}
+          FEATURES: ${{ inputs.features }}
+          TOOLCHAIN: ${{ steps.toolchain.outputs.toolchain }}
+          RUSTUP_TOOLCHAIN: ${{ steps.toolchain.outputs.toolchain }}
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$BASE" "$HEAD_SHA" || { echo "::error::base is not an ancestor of head"; exit 1; }
+          args=(--locked --all-targets --keep-going --message-format=json)
+          if [ -n "$PACKAGES" ]; then for p in $PACKAGES; do args+=(-p "$p"); done; else args+=(--workspace); fi
+          [ -z "$FEATURES" ] || args+=(--features "$FEATURES")
+          scan() {
+            git checkout --quiet "$1"
+            echo "::group::cargo clippy ${args[*]} at $1"
+            # Warnings, not errors: with -D warnings a crate with a finding stops
+            # compiling and hides the findings of everything that depends on it.
+            cargo clippy "${args[@]}" -- -W warnings > "$RUNNER_TEMP/$2.json" 2> "$RUNNER_TEMP/$2.err" || true
+            tail -5 "$RUNNER_TEMP/$2.err"
+            echo "::endgroup::"
+          }
+          scan "$BASE" base
+          scan "$HEAD_SHA" head
+          py=python3; command -v python3 >/dev/null || py=python
+          "$py" - "$RUNNER_TEMP/base.json" "$RUNNER_TEMP/head.json" <<'PY'
+          import collections, json, os, re, sys
+
+          def findings(path):
+              """(lint, file, message) -> count, plus one sample location each."""
+              count, where = collections.Counter(), {}
+              seen = set()
+              for line in open(path, encoding="utf-8", errors="replace"):
+                  try:
+                      m = json.loads(line)
+                  except ValueError:
+                      continue
+                  if m.get("reason") != "compiler-message":
+                      continue
+                  msg = m["message"]
+                  if msg["level"] not in ("warning", "error") or not msg.get("spans"):
+                      continue
+                  span = next((s for s in msg["spans"] if s.get("is_primary")), msg["spans"][0])
+                  code = (msg.get("code") or {}).get("code") or msg["level"]
+                  # A lib and its test target report the same site twice.
+                  site = (code, span["file_name"], span["line_start"], msg["message"])
+                  if site in seen:
+                      continue
+                  seen.add(site)
+                  # Line numbers shift with any edit above; compare without them.
+                  key = (code, span["file_name"].replace("\\", "/"), msg["message"])
+                  count[key] += 1
+                  where.setdefault(key, f'{span["file_name"]}:{span["line_start"]}')
+              return count, where
+
+          base, _ = findings(sys.argv[1])
+          head, where = findings(sys.argv[2])
+          new = head - base
+          gone = base - head
+          out = [f"### Clippy diff: base {sum(base.values())}, head {sum(head.values())} findings",
+                 "", f"**New in head: {sum(new.values())}**"]
+          out += [f"- `{k[0]}` {where[k]}: {k[2]}" for k in sorted(new)]
+          if gone:
+              out += ["", f"Fixed by head: {sum(gone.values())}"]
+              out += [f"- `{k[0]}` {k[1]}: {k[2]}" for k in sorted(gone)]
+          text = "\n".join(out)
+          print(text)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
+              f.write(text + "\n")
+          sys.exit(1 if new else 0)
+          PY
