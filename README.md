@@ -40,6 +40,27 @@ MESH_LLM_NATIVE_RUNTIME_BUNDLE_DIR="$RUNNER_TEMP/bundle" cargo test -p mesh-llm-
 
 `repo` is the PR's head repository (`kleinbem/mesh-llm` for our PRs); `platform` is `linux` (default), `macos` or `windows`. The script runs with `set -euo pipefail`.
 
+## Clippy diff
+
+Upstreams lint some platforms only (Mesh-LLM: Clippy on Linux; buzz-app: Windows on manual dispatch), so their `main` carries findings there and a plain `-D warnings` run fails every change. `clippy-diff.yml` runs Clippy (warnings, not errors, so every crate compiles) on the base and the head and fails only on findings the head adds, compared without line numbers. It works for any Rust repository:
+
+```sh
+gh workflow run clippy-diff.yml -R kleinbem/mesh-llm-ci -f repo=kleinbem/buzz-app \
+  -f base="$(git merge-base origin/main HEAD)" -f head="$(git rev-parse HEAD)" -f platform=windows \
+  -f packages='Buzz buzz-agent-controller buzz-credential-store buzz-mesh-compute'
+```
+
+| Input | Default | |
+|---|---|---|
+| `repo` | `kleinbem/mesh-llm` | must contain both commits (the fork) |
+| `base`, `head` | | full SHAs; `base` an ancestor of `head` |
+| `platform` | `windows` | `windows`, `macos` or `linux` |
+| `packages` | workspace | the packages upstream's job lints on that platform |
+| `features` | | e.g. Mesh-LLM on Windows: `mesh-llm-system/dynamic-native-runtime,mesh-llm-skippy-adapter/dynamic-native-runtime` |
+| `toolchain` | `repo` | `rust-toolchain.toml`'s channel, or a version (Mesh-LLM: `1.98.1`) |
+
+The job summary lists the new findings and the ones the head fixes.
+
 ## Jobs
 
 | Job | Like upstream's | What it runs |
