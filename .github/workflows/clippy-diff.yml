@@ -180,21 +180,18 @@ jobs:
               return count, where
 
           def scanned(path):
-              """A failed cargo run counts only if it left compiler errors to compare.
-
-              Otherwise (a missing toolchain, a resolver or build-script failure)
-              the scan saw nothing, and reporting no new findings would be false."""
+              """Findings, and whether cargo finished: a crate that fails to compile
+              leaves its dependents unlinted, even when base and head fail alike."""
               rc = int(open(path[:-5] + ".rc").read().strip() or 0)
               count, where = findings(path)
-              if rc != 0 and not any(k[0] == "error" or k[0].startswith("E") for k in count):
+              if rc != 0:
                   side = os.path.basename(path)[:-5]
-                  print(f"::error::cargo clippy failed on the {side} without diagnostics; see {side}.err")
+                  print(f"::error::cargo clippy failed on the {side}, so the comparison is incomplete")
                   print(open(path[:-5] + ".err", encoding="utf-8", errors="replace").read()[-3000:])
-                  sys.exit(2)
-              return count, where
+              return count, where, rc == 0
 
-          base, _ = scanned(sys.argv[1])
-          head, where = scanned(sys.argv[2])
+          base, _, base_ok = scanned(sys.argv[1])
+          head, where, head_ok = scanned(sys.argv[2])
           new = head - base
           gone = base - head
           out = [f"### Clippy diff: base {sum(base.values())}, head {sum(head.values())} findings",
@@ -207,5 +204,5 @@ jobs:
           print(text)
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
               f.write(text + "\n")
-          sys.exit(1 if new else 0)
+          sys.exit(1 if new or not (base_ok and head_ok) else 0)
           PY
