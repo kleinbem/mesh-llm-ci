@@ -144,7 +144,7 @@ jobs:
           py=python3; command -v python3 >/dev/null || py=python
           scan() {
             git checkout --quiet "$1"
-            local args=(--locked --all-targets --keep-going --message-format=json)
+            local args=(--locked --all-targets --keep-going --message-format=json) missing=" "
             if [ -n "$PACKAGES" ]; then
               # A package the head adds doesn't exist at the base, and cargo
               # would reject the whole base scan; select it only where it exists.
@@ -152,7 +152,7 @@ jobs:
               have=$(cargo metadata --locked --no-deps --format-version 1 |
                 "$py" -c 'import json, sys; print(" ".join(p["name"] for p in json.load(sys.stdin)["packages"]))')
               for p in $PACKAGES; do
-                if [[ " $have " == *" $p "* ]]; then args+=(-p "$p"); else echo "$p: not in $2, skipped there"; fi
+                if [[ " $have " == *" $p "* ]]; then args+=(-p "$p"); else echo "$p: not in $2, skipped there"; missing+="$p "; fi
               done
               # Without any -p cargo would lint the default members instead.
               if [[ " ${args[*]} " != *" -p "* ]]; then
@@ -162,7 +162,14 @@ jobs:
             else
               args+=(--workspace)
             fi
-            [ -z "$FEATURES" ] || args+=(--features "$FEATURES")
+            # Features of a skipped package would make cargo reject the scan too.
+            # ${a[@]+...}: macOS' bash 3.2 treats an empty array as unset.
+            local f given=() kept=()
+            IFS=, read -ra given <<< "$FEATURES"
+            for f in ${given[@]+"${given[@]}"}; do
+              [[ "$f" == */* && "$missing" == *" ${f%%/*} "* ]] || kept+=("$f")
+            done
+            [ ${#kept[@]} -eq 0 ] || args+=(--features "$(IFS=,; echo "${kept[*]}")")
             echo "::group::cargo clippy ${args[*]} at $1"
             # Warnings, not errors: with -D warnings a crate with a finding stops
             # compiling and hides the findings of everything that depends on it.
