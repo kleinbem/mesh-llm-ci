@@ -141,11 +141,35 @@ jobs:
             export CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER
             echo "linker: $CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER"
           fi
-          args=(--locked --all-targets --keep-going --message-format=json)
-          if [ -n "$PACKAGES" ]; then for p in $PACKAGES; do args+=(-p "$p"); done; else args+=(--workspace); fi
-          [ -z "$FEATURES" ] || args+=(--features "$FEATURES")
+          py=python3; command -v python3 >/dev/null || py=python
           scan() {
             git checkout --quiet "$1"
+            local args=(--locked --all-targets --keep-going --message-format=json) missing=" "
+            if [ -n "$PACKAGES" ]; then
+              # A package the head adds doesn't exist at the base, and cargo
+              # would reject the whole base scan; select it only where it exists.
+              local have
+              have=$(cargo metadata --locked --no-deps --format-version 1 |
+                "$py" -c 'import json, sys; print(" ".join(p["name"] for p in json.load(sys.stdin)["packages"]))')
+              for p in $PACKAGES; do
+                if [[ " $have " == *" $p "* ]]; then args+=(-p "$p"); else echo "$p: not in $2, skipped there"; missing+="$p "; fi
+              done
+              # Without any -p cargo would lint the default members instead.
+              if [[ " ${args[*]} " != *" -p "* ]]; then
+                : > "$RUNNER_TEMP/$2.json"; : > "$RUNNER_TEMP/$2.err"; echo 0 > "$RUNNER_TEMP/$2.rc"
+                return
+              fi
+            else
+              args+=(--workspace)
+            fi
+            # Features of a skipped package would make cargo reject the scan too.
+            # ${a[@]+...}: macOS' bash 3.2 treats an empty array as unset.
+            local f given=() kept=()
+            IFS=, read -ra given <<< "$FEATURES"
+            for f in ${given[@]+"${given[@]}"}; do
+              [[ "$f" == */* && "$missing" == *" ${f%%/*} "* ]] || kept+=("$f")
+            done
+            [ ${#kept[@]} -eq 0 ] || args+=(--features "$(IFS=,; echo "${kept[*]}")")
             echo "::group::cargo clippy ${args[*]} at $1"
             # Warnings, not errors: with -D warnings a crate with a finding stops
             # compiling and hides the findings of everything that depends on it.
@@ -157,13 +181,13 @@ jobs:
           }
           scan "$BASE" base
           scan "$HEAD_SHA" head
-          py=python3; command -v python3 >/dev/null || py=python
-          "$py" - "$RUNNER_TEMP/base.json" "$RUNNER_TEMP/head.json" <<'PY'
+          git diff --name-only "$BASE" "$HEAD_SHA" > "$RUNNER_TEMP/changed.txt"
+          "$py" - "$RUNNER_TEMP/base.json" "$RUNNER_TEMP/head.json" "$RUNNER_TEMP/changed.txt" <<'PY'
           import collections, json, os, re, sys
 
           def findings(path):
-              """(lint, file, message) -> count, plus one sample location each."""
-              count, where = collections.Counter(), {}
+              """(lint, file, message) -> count, and every location of each."""
+              count, where = collections.Counter(), collections.defaultdict(list)
               seen = set()
               for line in open(path, encoding="utf-8", errors="replace"):
                   try:
@@ -185,7 +209,7 @@ jobs:
                   # Line numbers shift with any edit above; compare without them.
                   key = (code, span["file_name"].replace("\\", "/"), msg["message"])
                   count[key] += 1
-                  where.setdefault(key, f'{span["file_name"]}:{span["line_start"]}')
+                  where[key].append(span["line_start"])
               return count, where
 
           def scanned(path):
@@ -221,10 +245,26 @@ jobs:
           gone = base - head
           out = [f"### Clippy diff: base {sum(base.values())}, head {sum(head.values())} findings",
                  "", f"**New in head: {sum(new.values())}**"]
-          out += [f"- `{k[0]}` {where[k]}: {k[2]}" for k in sorted(new)]
+          def at(k):
+              return f'{k[1]}:{",".join(map(str, sorted(where[k])))}'
+          out += [f"- `{k[0]}` {at(k)}: {k[2]}" for k in sorted(new)]
           if gone:
               out += ["", f"Fixed by head: {sum(gone.values())}"]
               out += [f"- `{k[0]}` {k[1]}: {k[2]}" for k in sorted(gone)]
+          # Counts compare without line numbers (they shift with any edit), so a
+          # finding removed and an identical one added in one file cancel out.
+          # List the head's findings in the touched files to check those by hand.
+          changed = {l.strip() for l in open(sys.argv[3], encoding="utf-8") if l.strip()}
+          touched = sorted(k for k in head if k not in new and k[1] in changed)
+          if touched:
+              out += ["", f"Also in files the change touches: {sum(head[k] for k in touched)}"]
+              out += [f"- `{k[0]}` {at(k)}: {k[2]}" for k in touched]
+          # Feature, macro or shared-type changes can swap findings in untouched
+          # files as well; the whole list is there for those.
+          if head:
+              out += ["", f"<details><summary>All head findings: {sum(head.values())}</summary>", ""]
+              out += [f"- `{k[0]}` {at(k)}: {k[2]}" for k in sorted(head)]
+              out += ["", "</details>"]
           text = "\n".join(out)
           print(text)
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
