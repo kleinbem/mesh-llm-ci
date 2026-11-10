@@ -132,6 +132,15 @@ jobs:
         run: |
           set -euo pipefail
           git merge-base --is-ancestor "$BASE" "$HEAD_SHA" || { echo "::error::base is not an ancestor of head"; exit 1; }
+          if [ "$RUNNER_OS" = Windows ]; then
+            # Git Bash's /usr/bin/link (coreutils) shadows MSVC's link.exe on
+            # PATH; repos without their own linker setting (buzz-app) hit it.
+            msvc_link=$(which -a link.exe | grep -v -i '^/usr/bin/' | head -1)
+            [ -n "$msvc_link" ] || { echo "::error::MSVC link.exe not found on PATH"; exit 1; }
+            CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$(cygpath -w "$msvc_link")
+            export CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER
+            echo "linker: $CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER"
+          fi
           args=(--locked --all-targets --keep-going --message-format=json)
           if [ -n "$PACKAGES" ]; then for p in $PACKAGES; do args+=(-p "$p"); done; else args+=(--workspace); fi
           [ -z "$FEATURES" ] || args+=(--features "$FEATURES")
@@ -187,7 +196,23 @@ jobs:
               if rc != 0:
                   side = os.path.basename(path)[:-5]
                   print(f"::error::cargo clippy failed on the {side}, so the comparison is incomplete")
-                  print(open(path[:-5] + ".err", encoding="utf-8", errors="replace").read()[-3000:])
+                  # Build-script and dependency errors carry no source span, so
+                  # findings() skips them; show what stopped the build.
+                  shown = 0
+                  for line in open(path, encoding="utf-8", errors="replace"):
+                      try:
+                          m = json.loads(line)
+                      except ValueError:
+                          continue
+                      msg = m.get("message") or {}
+                      if m.get("reason") == "compiler-message" and msg.get("level") == "error" and shown < 5:
+                          print(msg.get("rendered") or msg.get("message"))
+                          shown += 1
+                  # A build script that fails while running leaves its cause only on
+                  # stderr: show that block, else the tail.
+                  err = open(path[:-5] + ".err", encoding="utf-8", errors="replace").read()
+                  at = err.find("failed to run custom build command")
+                  print(err[max(at - 200, 0):at + 4000] if at >= 0 else err[-3000:])
               return count, where, rc == 0
 
           base, _, base_ok = scanned(sys.argv[1])
