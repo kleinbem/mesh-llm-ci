@@ -59,7 +59,7 @@ gh workflow run clippy-diff.yml -R kleinbem/mesh-llm-ci -f repo=kleinbem/buzz-ap
 | `features` | | e.g. Mesh-LLM on Windows: `mesh-llm-system/dynamic-native-runtime,mesh-llm-skippy-adapter/dynamic-native-runtime` |
 | `toolchain` | `repo` | `rust-toolchain.toml`'s channel, or a version (Mesh-LLM: `1.98.1`) |
 
-The job summary lists the new findings, the ones the head fixes, and the head's other findings in files the change touches. Check those by hand: a finding removed and an identical one added in the same file cancel out.
+The job summary lists the new findings, the ones the head fixes, and the head's other findings in files the change touches. Check those by hand: a finding removed and an identical one added in the same file cancel out. A collapsed list of all head findings covers changes (features, macros, shared types) that move findings in untouched files.
 
 ## Jobs
 

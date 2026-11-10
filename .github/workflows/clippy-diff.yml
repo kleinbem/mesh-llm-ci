@@ -259,6 +259,12 @@ jobs:
           if touched:
               out += ["", f"Also in files the change touches: {sum(head[k] for k in touched)}"]
               out += [f"- `{k[0]}` {at(k)}: {k[2]}" for k in touched]
+          # Feature, macro or shared-type changes can swap findings in untouched
+          # files as well; the whole list is there for those.
+          if head:
+              out += ["", f"<details><summary>All head findings: {sum(head.values())}</summary>", ""]
+              out += [f"- `{k[0]}` {at(k)}: {k[2]}" for k in sorted(head)]
+              out += ["", "</details>"]
           text = "\n".join(out)
           print(text)
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
