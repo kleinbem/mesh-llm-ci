@@ -55,11 +55,11 @@ gh workflow run clippy-diff.yml -R kleinbem/mesh-llm-ci -f repo=kleinbem/buzz-ap
 | `repo` | `kleinbem/mesh-llm` | must contain both commits (the fork) |
 | `base`, `head` | | full SHAs; `base` an ancestor of `head` |
 | `platform` | `windows` | `windows`, `macos` or `linux` |
-| `packages` | workspace | the packages upstream's job lints on that platform |
+| `packages` | workspace | the packages upstream's job lints on that platform, plus changed crates outside them; a package missing at the base (a new crate) is skipped there |
 | `features` | | e.g. Mesh-LLM on Windows: `mesh-llm-system/dynamic-native-runtime,mesh-llm-skippy-adapter/dynamic-native-runtime` |
 | `toolchain` | `repo` | `rust-toolchain.toml`'s channel, or a version (Mesh-LLM: `1.98.1`) |
 
-The job summary lists the new findings and the ones the head fixes.
+The job summary lists the new findings, the ones the head fixes, and the head's other findings in files the change touches. Check those by hand: a finding removed and an identical one added in the same file cancel out.
 
 ## Jobs
 
