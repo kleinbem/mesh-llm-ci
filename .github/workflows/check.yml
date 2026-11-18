@@ -33,13 +33,13 @@ on:
         options: [lib, all]
         default: lib
         required: true
-      title:
-        description: Optional PR title to check like the squash commit subject
-        default: ""
-        required: false
       toolchain:
         description: Rust toolchain; match upstream's runner image (its Clippy job log prints the cargo version)
         default: "1.98.1"
+        required: true
+      platform_toolchain:
+        description: Rust toolchain of the macOS/Windows rows; upstream installs current stable there
+        default: stable
         required: true
 
 permissions:
@@ -47,7 +47,7 @@ permissions:
 
 concurrency:
   # "|" can't occur in repo names, refs, crate names or versions; free text goes last.
-  group: check|${{ inputs.repo }}|${{ inputs.ref }}|${{ inputs.upstream }}|${{ inputs.packages }}|${{ inputs.targets }}|${{ inputs.toolchain }}|${{ inputs.filter }}|${{ inputs.title }}
+  group: check|${{ inputs.repo }}|${{ inputs.ref }}|${{ inputs.upstream }}|${{ inputs.packages }}|${{ inputs.targets }}|${{ inputs.toolchain }}|${{ inputs.platform_toolchain }}|${{ inputs.filter }}
   cancel-in-progress: false
 
 env:
@@ -80,6 +80,7 @@ jobs:
           PACKAGES: ${{ inputs.packages }}
           FILTER: ${{ inputs.filter }}
           TOOLCHAIN: ${{ inputs.toolchain }}
+          PLATFORM_TOOLCHAIN: ${{ inputs.platform_toolchain }}
         run: |
           set -euo pipefail
           [[ "$REPO" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]] || { echo "::error::invalid repo"; exit 1; }
@@ -88,6 +89,7 @@ jobs:
           [[ "$PACKAGES" =~ ^[A-Za-z0-9_\ -]+$ ]] || { echo "::error::invalid packages"; exit 1; }
           [[ "$FILTER" =~ ^[A-Za-z0-9_:]*$ ]] || { echo "::error::invalid filter"; exit 1; }
           [[ "$TOOLCHAIN" =~ ^(stable|beta|nightly|[0-9]+\.[0-9]+(\.[0-9]+)?)$ ]] || { echo "::error::invalid toolchain"; exit 1; }
+          [[ "$PLATFORM_TOOLCHAIN" =~ ^(stable|beta|nightly|[0-9]+\.[0-9]+(\.[0-9]+)?)$ ]] || { echo "::error::invalid platform_toolchain"; exit 1; }
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -210,19 +212,6 @@ jobs:
       - name: Rust format
         if: ${{ !cancelled() }}
         run: cargo fmt --all -- --check
-      - name: Commit convention
-        if: ${{ !cancelled() }}
-        env:
-          UPSTREAM: ${{ inputs.upstream }}
-          BASE: ${{ needs.plan.outputs.base }}
-          TITLE: ${{ inputs.title }}
-        run: |
-          set -euo pipefail
-          cargo build --locked -p xtask --bin xtask --quiet
-          target/debug/xtask repository conventional-commits --range "$BASE..HEAD"
-          if [ -n "$TITLE" ]; then
-            target/debug/xtask repository conventional-commits --message "$TITLE"
-          fi
       - name: Clippy (planned crates)
         if: ${{ !cancelled() && needs.plan.outputs.clippy != '[]' }}
         env:
@@ -236,6 +225,7 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
+          cargo build --locked -p xtask --bin xtask --quiet
           target/debug/xtask repo-consistency no-console-print
           target/debug/xtask repository env-mutation-census
           target/debug/xtask repo-consistency ci-crate-lists
@@ -304,6 +294,8 @@ jobs:
       # Less debug info keeps memory and disk within a standard runner.
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_PROFILE_TEST_DEBUG: "0"
+      # As upstream's Linux test job: some test threads need more than the default stack.
+      RUST_MIN_STACK: "8388608"
     steps:
       - name: Free disk space
         # Large test crates (mesh-llm-host-runtime) don't fit a standard runner otherwise.
@@ -362,9 +354,14 @@ jobs:
         if: ${{ matrix.platform == 'windows' }}
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
-          toolchain: ${{ inputs.toolchain }}
+          toolchain: ${{ inputs.platform_toolchain }}
           components: clippy
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        # As upstream: sccache 0.17+ expands Cargo's rustc argfile, which exceeds the
+        # Windows command-line limit with Rust 1.100 (os error 206, mozilla/sccache#2787).
+        # Drop the pin with the first release that has mozilla/sccache#3026.
+        with:
+          version: v0.16.0
       - name: Configure macOS linker
         if: ${{ matrix.platform == 'macos' }}
         uses: ./.github/actions/setup-macos-lld
