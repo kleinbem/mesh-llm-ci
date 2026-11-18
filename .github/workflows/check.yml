@@ -359,6 +359,7 @@ jobs:
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
         # As upstream: sccache 0.17+ expands Cargo's rustc argfile, which exceeds the
         # Windows command-line limit with Rust 1.100 (os error 206, mozilla/sccache#2787).
+        # Drop the pin with the first release that has mozilla/sccache#3026.
         with:
           version: v0.16.0
       - name: Configure macOS linker
