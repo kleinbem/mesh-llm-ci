@@ -24,8 +24,8 @@ Inputs:
 | `packages` | `auto` | `auto` = upstream planner; or packages to test on every platform |
 | `filter` | (empty) | Test name filter for the macOS/Windows rows, e.g. one module's tests |
 | `targets` | `lib` | `all` also runs the integration tests (`tests/`) on macOS/Windows, which upstream's rows don't |
-| `title` | (empty) | PR title to check like the squash commit subject |
-| `toolchain` | `1.98.1` | Rust toolchain; keep it at the version of upstream's runner image (the `cargo` version in its Clippy job log). A newer stable can fail Clippy on deprecations upstream doesn't see yet. |
+| `toolchain` | `1.98.1` | Rust toolchain of the Linux jobs; keep it at the version of upstream's runner image (the `cargo` version in its Clippy job log). A newer stable can fail Clippy on deprecations upstream doesn't see yet. |
+| `platform_toolchain` | `stable` | Rust toolchain of the macOS/Windows rows, as upstream installs current stable there |
 
 ## Run a script
 
@@ -66,7 +66,7 @@ The job summary lists the new findings, the ones the head fixes, and the head's 
 | Job | Like upstream's | What it runs |
 |---|---|---|
 | Plan | `plan-ci` | merge base with upstream `main`, changed files, `xtask ci plan` (profile `pr-ready`) |
-| Quality | Quality lane | `cargo fmt --check`, commit convention for `base..ref` (and `title`), Clippy `-D warnings` over the planned crates, `no-console-print`, env-mutation census, `ci-crate-lists`, `cargo machete` |
+| Quality | Quality lane | `cargo fmt --check`, Clippy `-D warnings` over the planned crates, `no-console-print`, env-mutation census, `ci-crate-lists`, `cargo machete` |
 | CI contracts | Quality's "CI contracts and consistency" | actionlint, `just ci-automation-contracts` and `ci-legacy-contracts` (the xtask contract tests, e.g. the env mutation census baseline), `publish-crates`, `release-targets` |
 | Rust tests | Linux rust-tests slice | `cargo test` per planned batch, static CPU llama.cpp |
 | macOS / Windows unit tests | platform checks (unit rows the planner selects) | `cargo test --lib` (`--bins` for binary-only crates such as `xtask`), optionally narrowed by `filter`, of upstream's fixed crate lists for these rows with `packages: auto`, or of the given `packages`; `targets: all` runs plain `cargo test` instead (lib, bins, `tests/`, doctests) |
