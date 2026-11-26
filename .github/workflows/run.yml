@@ -73,12 +73,12 @@ jobs:
           persist-credentials: false
       # Platform setup as in check.yml's platform rows, where the repository has it (Mesh-LLM).
       - uses: ./.github/actions/setup-windows-short-paths
-        if: ${{ inputs.platform == 'windows' && hashFiles('.github/actions/setup-windows-short-paths/action.yml') != '' }}
+        if: ${{ inputs.platform == 'windows' && hashFiles('.github/actions/setup-windows-short-paths/action.yml', '.github/actions/setup-windows-short-paths/action.yaml') != '' }}
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: ${{ inputs.toolchain }}
       - name: Configure macOS linker
-        if: ${{ inputs.platform == 'macos' && hashFiles('.github/actions/setup-macos-lld/action.yml') != '' }}
+        if: ${{ inputs.platform == 'macos' && hashFiles('.github/actions/setup-macos-lld/action.yml', '.github/actions/setup-macos-lld/action.yaml') != '' }}
         uses: ./.github/actions/setup-macos-lld
       - name: Install macOS build dependencies
         if: ${{ inputs.platform == 'macos' }}
